@@ -4,8 +4,17 @@ from tensorflow import keras
 from collections import deque
 import random
 import matplotlib.pyplot as plt
-from IPython.display import clear_output
 import time
+import os
+import pygame  # Add pygame for better visualization
+
+# Constants for visualization
+CELL_SIZE = 40
+GRID_COLOR = (50, 50, 50)
+SNAKE_COLOR = (0, 255, 0)
+SNAKE_HEAD_COLOR = (0, 200, 0)
+FOOD_COLOR = (255, 0, 0)
+BACKGROUND_COLOR = (0, 0, 0)
 
 
 # Define the Snake game environment
@@ -13,6 +22,9 @@ class SnakeGameEnv:
     def __init__(self, grid_size=10):
         self.grid_size = grid_size
         self.reset()
+        self.render_mode = None  # 'human', 'pygame', or None
+        self.pygame_initialized = False
+        self.screen = None
 
     def reset(self):
         # Initialize the snake at the center of the grid
@@ -50,14 +62,16 @@ class SnakeGameEnv:
         # Define the movement directions: up, right, down, left
         directions = [(-1, 0), (0, 1), (1, 0), (0, -1)]
 
-        # Update direction (cannot go in the opposite direction)
+        # Update direction
         current_direction_idx = directions.index(self.direction)
-        if action == 0:  # Continue in the same direction
+        if action == 0:  # Continue in same direction
             new_direction = self.direction
         elif action == 1:  # Turn left
             new_direction = directions[(current_direction_idx - 1) % 4]
         elif action == 2:  # Turn right
             new_direction = directions[(current_direction_idx + 1) % 4]
+        else:
+            raise ValueError("Invalid action")
 
         self.direction = new_direction
 
@@ -83,7 +97,7 @@ class SnakeGameEnv:
             or head_i >= self.grid_size
             or head_j < 0
             or head_j >= self.grid_size
-            or self.head in list(self.snake)[1:]
+            or (self.head in list(self.snake)[1:])
             or self.steps >= self.max_steps
         ):
             self.done = True
@@ -94,12 +108,12 @@ class SnakeGameEnv:
             reward += 0.1
 
             # Additional reward for moving towards food
-            food_i, food_j = self.food
-            dist_to_food = abs(head_i - food_i) + abs(head_j - food_j)
-            reward += 0.1 * (1.0 / (dist_to_food + 1))
+            if self.food:  # Only if food exists
+                food_i, food_j = self.food
+                dist_to_food = abs(head_i - food_i) + abs(head_j - food_j)
+                reward += 0.1 * (1.0 / (dist_to_food + 1))
 
         self.steps += 1
-
         return self._get_state(), reward, self.done
 
     def _get_state(self):
@@ -124,29 +138,105 @@ class SnakeGameEnv:
         # Flatten the state to a 1D array
         return state.flatten()
 
-    def render(self):
-        grid = np.zeros((self.grid_size, self.grid_size), dtype=str)
-        grid[:] = "⬛"  # Empty cell
+    def render(self, mode="human"):
+        self.render_mode = mode
 
-        # Draw snake body
-        for i, j in list(self.snake)[1:]:
-            if 0 <= i < self.grid_size and 0 <= j < self.grid_size:
-                grid[i, j] = "🟩"  # Snake body
+        if mode == "human":
+            # Text-based rendering for terminals
+            os.system("cls" if os.name == "nt" else "clear")
+            grid = np.zeros((self.grid_size, self.grid_size), dtype=str)
+            grid[:] = "·"  # Empty cell (using simpler character)
 
-        # Draw snake head
-        head_i, head_j = self.head
-        if 0 <= head_i < self.grid_size and 0 <= head_j < self.grid_size:
-            grid[head_i, head_j] = "🟦"  # Snake head
+            # Draw snake body
+            for i, j in list(self.snake)[1:]:
+                if 0 <= i < self.grid_size and 0 <= j < self.grid_size:
+                    grid[i, j] = "O"  # Snake body
 
-        # Draw food
-        if self.food:
-            food_i, food_j = self.food
-            grid[food_i, food_j] = "🍎"  # Food
+            # Draw snake head
+            head_i, head_j = self.head
+            if 0 <= head_i < self.grid_size and 0 <= head_j < self.grid_size:
+                grid[head_i, head_j] = "X"  # Snake head
 
-        # Print the grid
-        for row in grid:
-            print("".join(row))
-        print(f"Score: {self.score}, Steps: {self.steps}")
+            # Draw food
+            if self.food:
+                food_i, food_j = self.food
+                grid[food_i, food_j] = "*"  # Food
+
+            # Print the grid
+            print("+" + "-" * self.grid_size + "+")
+            for row in grid:
+                print("|" + "".join(row) + "|")
+            print("+" + "-" * self.grid_size + "+")
+            print(f"Score: {self.score}, Steps: {self.steps}")
+
+        elif mode == "pygame":
+            # Initialize pygame if not done yet
+            if not self.pygame_initialized:
+                pygame.init()
+                self.pygame_initialized = True
+                window_size = self.grid_size * CELL_SIZE
+                self.screen = pygame.display.set_mode((window_size, window_size))
+                pygame.display.set_caption("Snake RL")
+
+            self.screen.fill(BACKGROUND_COLOR)
+
+            # Draw grid lines
+            for i in range(self.grid_size + 1):
+                pygame.draw.line(
+                    self.screen,
+                    GRID_COLOR,
+                    (i * CELL_SIZE, 0),
+                    (i * CELL_SIZE, self.grid_size * CELL_SIZE),
+                )
+                pygame.draw.line(
+                    self.screen,
+                    GRID_COLOR,
+                    (0, i * CELL_SIZE),
+                    (self.grid_size * CELL_SIZE, i * CELL_SIZE),
+                )
+
+            # Draw snake body
+            for i, j in list(self.snake)[1:]:
+                if 0 <= i < self.grid_size and 0 <= j < self.grid_size:
+                    pygame.draw.rect(
+                        self.screen,
+                        SNAKE_COLOR,
+                        (j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE),
+                    )
+
+            # Draw snake head
+            head_i, head_j = self.head
+            if 0 <= head_i < self.grid_size and 0 <= head_j < self.grid_size:
+                pygame.draw.rect(
+                    self.screen,
+                    SNAKE_HEAD_COLOR,
+                    (head_j * CELL_SIZE, head_i * CELL_SIZE, CELL_SIZE, CELL_SIZE),
+                )
+
+            # Draw food
+            if self.food:
+                food_i, food_j = self.food
+                pygame.draw.circle(
+                    self.screen,
+                    FOOD_COLOR,
+                    (
+                        food_j * CELL_SIZE + CELL_SIZE // 2,
+                        food_i * CELL_SIZE + CELL_SIZE // 2,
+                    ),
+                    CELL_SIZE // 2 - 5,
+                )
+
+            # Draw score
+            font = pygame.font.SysFont(None, 24)
+            score_text = font.render(f"Score: {self.score}", True, (255, 255, 255))
+            self.screen.blit(score_text, (5, 5))
+
+            pygame.display.flip()
+
+    def close(self):
+        if self.pygame_initialized:
+            pygame.quit()
+            self.pygame_initialized = False
 
 
 # Deep Q-Network (DQN) Agent
@@ -241,8 +331,7 @@ class DQNAgent:
         self.model.save_weights(name)
 
 
-# Training function
-def train_dqn_agent(episodes=1000, grid_size=10, render_freq=100):
+def train_dqn_agent(episodes=500, grid_size=10, render_freq=50, render_mode="pygame"):
     env = SnakeGameEnv(grid_size=grid_size)
     state_size = env.grid_size * env.grid_size * 3  # State representation size
     action_size = 3  # Actions: continue, turn left, turn right
@@ -265,15 +354,15 @@ def train_dqn_agent(episodes=1000, grid_size=10, render_freq=100):
 
             agent.replay()
 
+            if e % render_freq == 0:
+                env.render(mode=render_mode)
+                time.sleep(0.05)  # Slower for visualization
+
             if done:
                 if e % render_freq == 0:
-                    clear_output(wait=True)
                     print(
                         f"Episode: {e}/{episodes}, Score: {env.score}, Epsilon: {agent.epsilon:.2f}"
                     )
-                    env.render()
-                    time.sleep(0.5)
-
                 break
 
         # Update target network every few episodes
@@ -286,11 +375,11 @@ def train_dqn_agent(episodes=1000, grid_size=10, render_freq=100):
         if e % 100 == 0:
             agent.save(f"snake_model_ep{e}.h5")
 
+    env.close()
     return agent, scores
 
 
-# Evaluation function
-def evaluate_agent(agent, episodes=100, grid_size=10):
+def evaluate_agent(agent, episodes=20, grid_size=10, render_mode="pygame"):
     env = SnakeGameEnv(grid_size=grid_size)
     scores = []
     steps = []
@@ -302,38 +391,124 @@ def evaluate_agent(agent, episodes=100, grid_size=10):
             next_state, _, done = env.step(action)
             state = next_state
 
-            if e < 5:  # Display first 5 episodes
-                clear_output(wait=True)
-                print(f"Evaluation Episode: {e+1}/{episodes}")
-                env.render()
-                time.sleep(0.1)
+            env.render(mode=render_mode)
+            time.sleep(0.1)  # Slower for visualization
 
         scores.append(env.score)
         steps.append(env.steps)
+        print(f"Evaluation Episode {e+1}/{episodes}, Score: {env.score}")
 
-    print(f"Average Score: {np.mean(scores)}")
-    print(f"Average Steps: {np.mean(steps)}")
+    env.close()
+    print(f"Average Score: {np.mean(scores):.2f}")
+    print(f"Average Steps: {np.mean(steps):.2f}")
 
     return scores, steps
 
 
-# Main execution
+def human_play(grid_size=10):
+    """Human playable version of the game"""
+    pygame.init()
+    env = SnakeGameEnv(grid_size=grid_size)
+    state = env.reset()
+
+    window_size = grid_size * CELL_SIZE
+    screen = pygame.display.set_mode((window_size, window_size))
+    pygame.display.set_caption("Snake - Human Player")
+
+    clock = pygame.time.Clock()
+    running = True
+
+    # Map keys to actions
+    # 0: continue, 1: turn left, 2: turn right
+    current_action = 0
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    current_action = 1
+                elif event.key == pygame.K_RIGHT:
+                    current_action = 2
+                elif event.key == pygame.K_UP:
+                    current_action = 0
+
+        # Take step with current action
+        next_state, reward, done = env.step(current_action)
+        state = next_state
+
+        # Reset action after step
+        current_action = 0
+
+        # Render
+        env.render(mode="pygame")
+
+        if done:
+            print(f"Game Over! Score: {env.score}")
+            time.sleep(2)
+            running = False
+
+        clock.tick(5)  # 5 FPS for human play
+
+    pygame.quit()
+
+
 if __name__ == "__main__":
-    # Train the agent
-    trained_agent, training_scores = train_dqn_agent(
-        episodes=500, grid_size=10, render_freq=100
-    )
+    # Choose mode: 'train', 'eval', 'human', 'train_and_eval'
+    mode = "train_and_eval"
 
-    # Plot training progress
-    plt.figure(figsize=(10, 5))
-    plt.plot(training_scores)
-    plt.title("Training Progress")
-    plt.xlabel("Episode")
-    plt.ylabel("Score")
-    plt.show()
+    if mode == "train":
+        # Train the agent
+        trained_agent, training_scores = train_dqn_agent(
+            episodes=300, grid_size=10, render_freq=50, render_mode="pygame"
+        )
 
-    # Evaluate the trained agent
-    eval_scores, eval_steps = evaluate_agent(trained_agent, episodes=50, grid_size=10)
+        # Save the model
+        trained_agent.save("snake_model_final.h5")
 
-    # Save the final model
-    trained_agent.save("snake_model_final.h5")
+        # Plot training progress
+        plt.figure(figsize=(10, 5))
+        plt.plot(training_scores)
+        plt.title("Training Progress")
+        plt.xlabel("Episode")
+        plt.ylabel("Score")
+        plt.savefig("training_progress.png")
+        plt.show()
+
+    elif mode == "eval":
+        # Load and evaluate a trained model
+        env = SnakeGameEnv(grid_size=10)
+        state_size = env.grid_size * env.grid_size * 3
+        agent = DQNAgent(state_size, 3)
+        try:
+            agent.load("snake_model_final.h5")
+            print("Model loaded successfully!")
+            eval_scores, eval_steps = evaluate_agent(agent, episodes=10)
+        except:
+            print("No saved model found. Train the agent first.")
+
+    elif mode == "human":
+        # Play the game yourself
+        human_play(grid_size=10)
+
+    elif mode == "train_and_eval":
+        # Train and then evaluate
+        trained_agent, training_scores = train_dqn_agent(
+            episodes=300, grid_size=10, render_freq=50, render_mode="pygame"
+        )
+
+        # Save the model
+        trained_agent.save("snake_model_final.h5")
+
+        # Evaluate the trained agent
+        eval_scores, eval_steps = evaluate_agent(trained_agent, episodes=10)
+
+        # Plot training progress
+        plt.figure(figsize=(10, 5))
+        plt.plot(training_scores)
+        plt.title("Training Progress")
+        plt.xlabel("Episode")
+        plt.ylabel("Score")
+        plt.savefig("training_progress.png")
+        plt.show()
